@@ -12,7 +12,7 @@ from typing import Union
 from math import pi
 from torchvision.ops import box_iou
 
-from ..utils.box_ops import convert_boxes_to_2d_corners
+from utils.math.box_ops import convert_boxes_to_2d_corners
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,10 @@ class BoxMatch(nn.Module):
         self.anchors = ast.literal_eval(head_cfg['anchors'])
         self.training = training
 
+        self.x_min =  self.pillars_cfg.getfloat('x_min')
+        self.y_min =  self.pillars_cfg.getfloat('y_min')
+
+
         logger.debug("BoxMatch init complete.")
 
     def _calculate_absolute_boxes_from_anchors(self, pred_anchors: torch.Tensor) -> torch.Tensor:
@@ -39,11 +43,8 @@ class BoxMatch(nn.Module):
         logger.info("Calculating absolute_boxes_from_anchors...")
 
         bs, n_x, n_y, n_a = pred_anchors.shape[0:4]
-        x_min =  self.pillars_cfg.getfloat('x_min')
-        y_min =  self.pillars_cfg.getfloat('y_min')
-        x_step = (self.pillars_cfg.getfloat('x_max') - x_min) / n_x
-        y_step = (self.pillars_cfg.getfloat('y_max') - y_min) / n_y
-
+        x_step = (self.pillars_cfg.getfloat('x_max') - self.x_min) / n_x
+        y_step = (self.pillars_cfg.getfloat('y_max') - self.y_min) / n_y
         # create tensor containing the pillar indicies in the correct dimension
         x = torch.cuda.FloatTensor(range(n_x)).unsqueeze(1).expand(n_x, n_y)
         y = torch.cuda.FloatTensor(range(n_y),).unsqueeze(0).expand(n_x, n_y)
@@ -57,7 +58,7 @@ class BoxMatch(nn.Module):
         # step with current pseudo image size
         # calculate pillar center from index
         pil_xy = ind * torch.cuda.FloatTensor([x_step, y_step])
-        pil_xy += torch.cuda.FloatTensor([x_min, y_min])
+        pil_xy += torch.cuda.FloatTensor([self.x_min, self.y_min])
 
         # expand for anchor nbr
         pil_xy = pil_xy.unsqueeze(3).expand(-1, -1, -1, n_a, -1)
@@ -70,12 +71,9 @@ class BoxMatch(nn.Module):
         # add anchors z offset
         pred_anchors_z = pred_anchors[:,:,:,:,2] * pred_anchors[:,:,:,:,3] + anchors_tens[:,:,:,:,0]
         pred_anchors_z = pred_anchors_z.unsqueeze(4)
-        # bb_hwl = exp(pred_hwl) * gt_hwl
         pred_anchors_hwl = torch.exp(pred_anchors[:,:,:,:,3:6]) * anchors_tens[:,:,:,:,1:4]
-        #pred_anchors_hwl = F.softplus(pred_anchors[:,:,:,:,3:6]) * anchors_tens[:,:,:,:,1:4]
 
         # add radiant offset
-        #pred_anchors_theta = -2 * pi * torch.sigmoid(pred_anchors[:,:,:,:,6]) + anchors_tens[:,:,:,:,4]
         epsilon = 1e-7
         pred_anchors_theta = torch.clamp(pred_anchors[:,:,:,:,6], -1 + epsilon, +1 - epsilon)
         pred_anchors_theta = -1 * torch.arcsin(pred_anchors_theta) + anchors_tens[:,:,:,:,4]
@@ -83,14 +81,6 @@ class BoxMatch(nn.Module):
 
         pred_anchors = torch.cat((pred_anchors_xy, pred_anchors_z, pred_anchors_hwl, pred_anchors_theta), dim=4)
         del anchors_tens, pred_anchors_z, pred_anchors_hwl, pred_anchors_theta
-
-        """
-         # h, l, w must be positive even with random weights, use softpos to ensure
-        pred_anchors_hwl = pred_anchors[:,:,:,:,3:6]
-        pred_anchors_hwl = F.softplus(pred_anchors_hwl)
-        pred_anchors = torch.cat((pred_anchors[:,:,:,:,:3], pred_anchors_hwl, pred_anchors[:,:,:,:,6:]), dim=4)
-        del pred_anchors_hwl
-        """
 
         logger.debug(f"Absolute boxes from anchors calculation complete.\n"
                      f"pred_anchors: {pred_anchors}{pred_anchors.shape}")
@@ -112,28 +102,24 @@ class BoxMatch(nn.Module):
         logger.info("Calculating batch iou...")
         logger.debug(f"pred_boxes: {pred_boxes}{pred_boxes.shape},\n"
                      f"gt_boxes: {gt_boxes}{gt_boxes.shape}")
-
         iou =  []
         for i in range(pred_boxes.shape[0]):
             pred_batch = pred_boxes[i]
             gt_batch = gt_boxes[i]
-
             iou.append(box_iou(pred_batch, gt_batch))
 
         batch_iou = torch.stack(iou, dim=0)
-
         logger.debug(f"Batch iou calculation complete.\n"
                      f"batch_iou: {batch_iou}{batch_iou.shape}")
-
         del pred_batch, gt_batch
         return batch_iou
 
-    def iou_nms_from_corners(self,
-                             preds: Union[list, tuple],
-                             gt_boxes: torch.Tensor,
-                             gt_mask: torch.Tensor,
-                             pos_iou_threshold: float = 0.6,
-                             neg_iou_threshold: float = 0.4) -> list:
+    def boxmatch_from_corners(self,
+                              preds: Union[list, tuple],
+                              gt_boxes: torch.Tensor,
+                              gt_mask: torch.Tensor,
+                              pos_iou_threshold: float = 0.6,
+                              neg_iou_threshold: float = 0.4) -> list:
         """
         Calculates iou from boxes in corner representation and uses non maximum suppression to get
         the best fitting boxes.
@@ -144,7 +130,7 @@ class BoxMatch(nn.Module):
                        pred_head(N, H * W * nb_anchors),
                        pred_box(N, H * W * nb_anchors, nb_attributes=7))
 
-                       pred_box having attributes x,y,z,w,l,h,theta
+                       pred_box having attributes x,y,z,h,w,l,theta
 
         :param gt_boxes: Tensor(batch_size, nbr_gt_boxes, nbr_attributes=7)
         :param gt_mask: tensor(batch_size, nbr_gt_boxes)
@@ -173,9 +159,13 @@ class BoxMatch(nn.Module):
 
         pred_boxes_corners = convert_boxes_to_2d_corners(preds[3])
         gt_boxes_corners = convert_boxes_to_2d_corners(gt_boxes)
-
         # upper iou threshold for positive as well as negative match
-        iou = self._calculate_batch_iou(pred_boxes_corners, gt_boxes_corners)
+        # add x_min and y_min, since box_iou() expects values greater than 0
+        bs, na, n = pred_boxes_corners.shape
+        xy_min = torch.cuda.FloatTensor([self.x_min, self.y_min])
+        xy_min = torch.cat((xy_min, xy_min), dim=0)
+        iou = self._calculate_batch_iou(pred_boxes_corners + xy_min.expand_as(pred_boxes_corners),
+                                        gt_boxes_corners + xy_min.expand_as(gt_boxes_corners))
         del pred_boxes_corners, gt_boxes_corners
 
         condition_pos = iou >= pos_iou_threshold
@@ -196,10 +186,8 @@ class BoxMatch(nn.Module):
             flat_tensor = torch.flatten(tensor, start_dim=0, end_dim=1)
             # select indices according to iou
             results.append(torch.index_select(flat_tensor, 0, indices_pred_boxes_flat))
-
         gt_boxes_flat = torch.flatten(gt_boxes, start_dim=0, end_dim=1)
         results.append(torch.index_select(gt_boxes_flat, 0, indices_gt_boxes_flat))
-
         del indices_pred_boxes_flat, flat_tensor, gt_boxes_flat, indices_gt_boxes_flat
 
         # negative matches
@@ -252,19 +240,17 @@ class BoxMatch(nn.Module):
 
         if isinstance(preds, tuple):
             preds = list(preds)
-
         # calc anchor centers from pseudo image index
         preds[3] = self._calculate_absolute_boxes_from_anchors(preds[3])
-
         # shape Tensor(batch_size, H * W * nbr_anchors, nbr_attributes=7)
         for i in range(len(preds)):
             preds[i] = torch.flatten(preds[i], start_dim=1, end_dim=3)
 
         if self.training:
-            return self.iou_nms_from_corners(preds,
-                                             gt_boxes,
-                                             gt_mask,
-                                             pos_iou_threshold=self.pillars_cfg.getfloat('pos_iou_threshold'),
-                                             neg_iou_threshold=self.pillars_cfg.getfloat('neg_iou_threshold'))
+            return self.boxmatch_from_corners(preds,
+                                              gt_boxes,
+                                              gt_mask,
+                                              pos_iou_threshold=self.pillars_cfg.getfloat('pos_iou_threshold'),
+                                              neg_iou_threshold=self.pillars_cfg.getfloat('neg_iou_threshold'))
         else:
             return preds

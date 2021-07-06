@@ -17,7 +17,6 @@ class PointPillarsLoss(nn.Module):
         logger.info("Initializing PointPillarsLoss module...")
         super(PointPillarsLoss, self).__init__()
 
-
     def forward(self, preds: list, writer: SummaryWriter = None, epoch: int = 0, i: int = 0) -> float:
         """
         Calculates the resulting, overall loss function. It consists of the occupancy loss for positive as well as

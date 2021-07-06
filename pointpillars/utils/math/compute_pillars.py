@@ -10,7 +10,7 @@ import torch
 import numpy as np
 from numba import njit
 
-from .utils.io import read_config
+from utils.io import read_config
 
 logger = logging.getLogger(__name__)
 

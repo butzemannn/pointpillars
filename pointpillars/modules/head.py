@@ -21,13 +21,14 @@ class Head(nn.Module):
         super(Head, self).__init__()
         # TODO: define in channel properly
         self.num_anchors = len(ast.literal_eval(head_cfg['anchors']))
-        # x,y,z,w,l,h,theta
         # x,y,z,h,w,l,theta (maybe occupancy to define if object is present)
         self.num_attributes = 7
 
-        self.conv_occ = nn.Conv2d(384, self.num_anchors, 1)
         self.conv_cls = nn.Conv2d(384, self.num_anchors, 1)
+        self.conv_occ = nn.Conv2d(384, self.num_anchors, 1)
         self.conv_head = nn.Conv2d(384, self.num_anchors, 1)
+        #self.conv_occ = nn.Conv2d(384, self.num_anchors * 2, 1)
+        #self.conv_head = nn.Conv2d(384, self.num_anchors * 2, 1)
 
         self.conv_boxes = nn.Conv2d(384, self.num_anchors * self.num_attributes, 1)
 
@@ -38,9 +39,9 @@ class Head(nn.Module):
         """
         :param batch: a batch of data coming from the feature net
 
-        :returns:   (pred_occ(N, H, W, nb_anchors),
+        :returns:   (pred_occ(N, H, W, nb_anchors, 2),
                      pred_cls(N, H, W, nb_anchors),
-                     pred_head(N, H, W, nb_anchors),
+                     pred_head(N, H, W, nb_anchors, 2),
                      pred_boxes(N, H, W, nb_anchors, nb_attributes=7))
 
                      Meaning of the values:
@@ -52,19 +53,22 @@ class Head(nn.Module):
         logger.info("Forward through detection head...")
         logger.debug(f"batch: {batch}{batch.shape}")
 
-        pred_occ = self.conv_occ(batch)
         pred_cls = self.conv_cls(batch)
+        pred_occ = self.conv_occ(batch)
         pred_head = self.conv_head(batch)
-        # permute (batch_size, n_anchors, H, W) -> (batch_size, H, W, n_anchors)
-        pred_occ = pred_occ.permute(0, 2, 3, 1)
-        pred_cls = pred_cls.permute(0, 2, 3, 1)
-        pred_head = pred_head.permute(0, 2, 3, 1)
-
         pred_boxes = self.conv_boxes(batch)
         C, H, W = pred_boxes.shape[1:]
+        # permute (batch_size, n_anchors, H, W) -> (batch_size, H, W, n_anchors)
+        pred_cls = pred_cls.permute(0, 2, 3, 1)
+        pred_occ = pred_occ.permute(0, 2, 3, 1)
+        pred_head = pred_head.permute(0, 2, 3, 1)
+        #pred_occ = pred_occ.reshape(-1, self.num_anchors, 2, H, W).permute(0, 3, 4, 1, 2)
+        #pred_head = pred_head.reshape(-1, self.num_anchors, 2, H, W).permute(0, 3, 4, 1, 2)
         # resize and permute to fit the correct dimensions
         # out: (batch_size, H, W, n_anchors, 7)
         pred_boxes = pred_boxes.reshape(-1, self.num_anchors, self.num_attributes, H, W).permute(0, 3, 4, 1, 2)
+
+
 
         """
         # h, l, w must be positive even with random weights, use relu to ensure

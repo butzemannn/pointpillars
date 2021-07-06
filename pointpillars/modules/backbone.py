@@ -45,7 +45,7 @@ class Backbone(nn.Module):
                 modules.append(nn.Conv2d(C_out, C_out, 3, padding=1))
 
             modules.append(nn.BatchNorm2d(C_out, ))
-            modules.append(nn.ReLU(inplace=True))
+            modules.append(nn.ReLU(inplace=False))
 
         return nn.Sequential(*modules)
 
@@ -54,7 +54,7 @@ class Backbone(nn.Module):
         return nn.Sequential(
             nn.ConvTranspose2d(C_in, C_out, stride, stride=stride),
             nn.BatchNorm2d(C_out),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=False)
         )
 
     def forward(self, batch: torch.tensor):

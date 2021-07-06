@@ -42,7 +42,6 @@ class FeatureNet(nn.Module):
         """Simplified point net to create a pseudo image from the point cloud."""
         if pil_batch.shape[0] != ind_batch.shape[0]:
             raise ValueError("The dimensions of the pillar batch and indices batch do not match.")
-
         # simplified PointNet
         # in: (N_b, D=9, N, P), out: (N_b, C_out, N, P)
         pil_batch = self.conv1(pil_batch)
@@ -54,12 +53,23 @@ class FeatureNet(nn.Module):
         n_b, n_c, n_x, n_y = pil_batch.shape
 
         # scatter points back to pillar position
-        pse_img = torch.zeros([pil_batch.shape[0],
-                               pil_batch.shape[1],
+        pse_img = torch.zeros([n_b,
+                               n_c,
                                self.n_x,
                                self.n_y],
                                dtype=torch.float,
                                device="cuda:0")
+
+        """#print(pse_img.shape, pil_batch.shape, ind_batch.shape)
+        ind_batch = ind_batch.type(torch.LongTensor).unsqueeze(1).expand(-1, n_c, -1, -1)
+        #print(pse_img.shape, pil_batch.shape, ind_batch.shape)
+        #print(ind_batch[:,:,:,0].shape)
+        ind_batch_tuple = torch.split(ind_batch, 1, dim=3)
+        print(ind_batch_tuple[0].shape)
+        pse_img[:,:,ind_batch_tuple[0], ind_batch_tuple[1]] = pil_batch
+        print(pse_img.shape)
+
+        return pse_img"""
 
         # flatten indices and pil_batch,
         # and also get the corresponding flat indices so torch.put() can be used

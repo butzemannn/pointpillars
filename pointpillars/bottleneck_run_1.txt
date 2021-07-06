@@ -1,0 +1,34 @@
+`bottleneck` is a tool that can be used as an initial step for debugging
+bottlenecks in your program.
+
+It summarizes runs of your script with the Python profiler and PyTorch's
+autograd profiler. Because your script will be profiled, please ensure that it
+exits in a finite amount of time.
+
+For more complicated uses of the profilers, please see
+https://docs.python.org/3/library/profile.html and
+https://pytorch.org/docs/master/autograd.html#profiler for more information.
+Running environment analysis...
+Running your script with cProfile
+Epoch: 0, Batch 0 with Loss 2.784761428833008 and running Loss 2.784761428833008.
+Epoch: 0, Batch 1 with Loss 2.6308512687683105 and running Loss 2.707806348800659.
+Epoch: 0, Batch 2 with Loss 2.990445613861084 and running Loss 2.8020194371541343.
+Epoch: 0, Batch 3 with Loss 2.4977223873138428 and running Loss 2.7259451746940613.
+Epoch: 0, Batch 4 with Loss 2.589564323425293 and running Loss 2.6986690044403074.
+Epoch: 0, Batch 5 with Loss 2.5634641647338867 and running Loss 2.6761348644892373.
+Epoch: 0, Batch 6 with Loss 2.587453842163086 and running Loss 2.663466147014073.
+Epoch: 0, Batch 7 with Loss 2.464522361755371 and running Loss 2.6385981738567352.
+Epoch: 0, Batch 8 with Loss 2.600325345993042 and running Loss 2.634345637427436.
+Epoch: 0, Batch 9 with Loss 2.5358479022979736 and running Loss 2.6244958639144897.
+Epoch: 0, Batch 10 with Loss 2.5517632961273193 and running Loss 2.617883812297474.
+Epoch: 0, Batch 11 with Loss 2.5201032161712646 and running Loss 2.609735429286957.
+Epoch: 0, Batch 12 with Loss 2.5739171504974365 and running Loss 2.606980177072378.
+Epoch: 0, Batch 13 with Loss 2.616129159927368 and running Loss 2.6076336758477345.
+Epoch: 0, Batch 14 with Loss 2.5370845794677734 and running Loss 2.6029304027557374.
+Running your script with the autograd profiler...
+Epoch: 0, Batch 0 with Loss 2.7917227745056152 and running Loss 2.7917227745056152.
+Epoch: 0, Batch 1 with Loss 2.6833977699279785 and running Loss 2.737560272216797.
+Epoch: 0, Batch 2 with Loss 2.8937442302703857 and running Loss 2.789621591567993.
+Epoch: 0, Batch 3 with Loss 2.6871256828308105 and running Loss 2.7639976143836975.
+Epoch: 0, Batch 4 with Loss 2.587895154953003 and running Loss 2.7287771224975588.
+Epoch: 0, Batch 5 with Loss 3.102266311645508 and running Loss 2.7910253206888833.

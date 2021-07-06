@@ -4,7 +4,7 @@ __all__ = ['calculate_pillar_center', 'calculate_pillars']
 
 # Cell
 import torch
-from .utils.io import read_config
+from ..io import read_config
 
 # Cell
 def calculate_pillar_center(x_min_pillar, y_min_pillar, gparam):

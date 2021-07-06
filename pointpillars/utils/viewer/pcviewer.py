@@ -105,7 +105,7 @@ class PCViewer(object):
 
         pred_boxes_arr = []
         for i, pred_box in enumerate(pred_boxes):
-            pred_line_set = PCViewer.line_set_from_3d_box(pred_box, [1,0,0])
+            pred_line_set = PCViewer.line_set_from_3d_box(pred_box, [0,0,1])
             pred_boxes_arr.append(pred_line_set)
 
         gt_boxes_arr = []

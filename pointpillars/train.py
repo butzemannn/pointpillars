@@ -6,14 +6,19 @@ __all__ = ['ident_time', 'logger', 'log_format', 'log_formatter', 'log_handler',
 # Cell
 import logging
 import torch
-from torch import autograd
 from torch.utils.tensorboard import SummaryWriter
 import datetime
+from torchviz import make_dot
+from torch.profiler import profile, record_function, ProfilerActivity
 
-from .utils.io import read_config, save_network_checkpoint, save_network
-from .data.dataset import VelTrainDataset, collate_fn, OverfitSampler
-from .modules.pointpillars import PointPillars, init_weights
-from .loss import PointPillarsLoss
+from utils.io import read_config, save_network_checkpoint, save_network
+from data.dataset import VelTrainDataset, collate_fn, OverfitSampler, collate_wrapper
+from modules.pointpillars import PointPillars, init_weights
+from modules.loss import PointPillarsLoss
+
+
+#import os
+#os.environ['PATH'] += os.pathsep + "/home/qhs67/anaconda3/envs/ba/lib/python3.8/site-packages/graphviz"
 
 
 # Cell
@@ -49,30 +54,26 @@ def _train_setup():
 
     logger.info("Start network training..")
     torch.cuda.empty_cache()
-    torch.multiprocessing.set_start_method('spawn')
-
+    #torch.multiprocessing.set_start_method('spawn')
     # TODO: move to config file
     conf = read_config()
     vel_folder = "/home/qhs67/git/bachelorthesis_sven_thaele/code/data/kitti/training/velodyne/training"
     label_folder ="/home/qhs67/git/bachelorthesis_sven_thaele/code/data/kitti/training/label_2/training"
-
     ds_train = VelTrainDataset(vel_folder, label_folder)
-    """dl_train = torch.utils.data.DataLoader(ds_train,
+    dl_train = torch.utils.data.DataLoader(ds_train,
                                            batch_size=batch_size,
-                                           num_workers=1,
-                                           collate_fn=collate_fn,
-                                           shuffle=True)"""
-
-    sampler = OverfitSampler(ds_train, batch_size, nb_samples=20, shuffle=True)
+                                           num_workers=2,
+                                           collate_fn=collate_wrapper,
+                                           pin_memory=True,
+                                           shuffle=True)
+    """sampler = OverfitSampler(ds_train, batch_size, nb_samples=20, shuffle=True)
     for i in sampler:
         print(i)
-
     dl_train = torch.utils.data.DataLoader(ds_train,
                                            batch_size=batch_size,
                                            sampler=sampler,
                                            num_workers=0,
-                                           collate_fn=collate_fn)
-
+                                           collate_fn=collate_fn)"""
     # modules
     pointpillars = PointPillars(conf)
     loss_func = PointPillarsLoss()
@@ -86,8 +87,8 @@ def _train_setup():
     loss_func.cuda()
 
     optimizer = torch.optim.Adam(pointpillars.parameters(), lr=init_lr)
-    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 15, gamma=0.8, last_epoch=-1)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 2000, gamma=0.8, last_epoch=-1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 30, gamma=0.8, last_epoch=-1)
+    #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 2000, gamma=0.8, last_epoch=-1)
 
     return pointpillars, loss_func, optimizer, scheduler, dl_train
 
@@ -98,17 +99,23 @@ def _train_step(batch: torch.Tensor,
                optimizer: torch.optim.Adam,
                epoch: int,
                i: int) -> torch.nn.Module:
-
     """
     Performs a training step
     """
-
     pil_batch, ind_batch, label_batch, label_mask = batch
 
+    pil_batch = pil_batch.cuda(non_blocking=True)
+    ind_batch = ind_batch.cuda(non_blocking=True)
+    label_batch = label_batch.cuda(non_blocking=True)
+    label_mask = label_mask.cuda(non_blocking=True)
     # -> forward pass through network
-    preds = pointpillars(pil_batch, ind_batch, label_batch, label_mask)
 
+    preds = pointpillars(pil_batch, ind_batch, label_batch, label_mask)
     loss = loss_func(preds, writer, epoch, i)
+
+    """dot = make_dot(loss, params=dict(pointpillars.named_parameters()), show_saved=True, show_attrs=True)
+    dot.format = 'png'
+    dot.render('torchviz-sample')"""
     loss.backward()
     optimizer.step()
 
@@ -122,33 +129,28 @@ def validate(network: torch.nn.Module, loss_func: torch.nn.Module, epoch, nbr_va
     Validates the network on the loss function on the validation dataset
     """
     batch_size = 3
-
     validation_folder = "/home/qhs67/git/bachelorthesis_sven_thaele/code/data/kitti/training/velodyne/validation"
     label_folder ="/home/qhs67/git/bachelorthesis_sven_thaele/code/data/kitti/training/label_2/validation"
-
     with torch.no_grad():
         ds_val = VelTrainDataset(validation_folder, label_folder)
         dl_val = torch.utils.data.DataLoader(ds_val,
                                            batch_size=batch_size,
                                            num_workers=2,
                                            collate_fn=collate_fn,
+                                           pin_memory=True,
                                            shuffle=True)
 
         running_val_loss = 0
-
         for i, batch in enumerate(dl_val):
             # stop after given number of data
             if i >= nbr_val_batches:
                 break
-
             pil_batch, ind_batch, label_batch, label_mask = batch
             preds = network(pil_batch, ind_batch, label_batch, label_mask)
             loss = loss_func(preds)
-
             running_val_loss += loss.item()
 
             print("Val Epoch: {}, Batch {} with Loss {} and running Loss {}.".format(epoch, i, loss.item(), running_val_loss/(i+1)))
-
             #writer.add_scalar("Epoch {}/Validation Loss".format(epoch), running_val_loss/(i+1), i)
             #writer.flush()
 
@@ -163,37 +165,40 @@ def train(val: bool = False, save_nw: bool = False):
     :param val: bool if validation should be used
     :param save_nw: bool if network state should be saved after training
     """
-    n_epochs = 10000
-
+    n_epochs = 1
 
     pointpillars, loss_func, optimizer, scheduler, dl_train = _train_setup()
+
 
     try:
         for epoch in range(n_epochs):
             running_loss = 0
-            for i, batch in enumerate(dl_train):
+            with torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=0, warmup=1, active=3, repeat=2),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/prof1'),
+                record_shapes=True,
+                with_stack=True,
 
+            ) as prof:
+                for i, batch in enumerate(dl_train):
+                    if i >= (1 + 3) * 2:
+                        break
+                    optimizer.zero_grad()
+                    loss = _train_step(batch, pointpillars, loss_func, optimizer, epoch, i)
+                    #running_loss += loss.item()
+                    #print("Epoch: {}, Batch {} with Loss {} and running Loss {}.".format(epoch, i, loss.item(), running_loss/(i+1)))
+                    print("Epoch: {}, Batch {}.".format(epoch, i))
+                    #writer.add_scalar("Epoch {}/Running Loss".format(epoch), running_loss/(i+1), i)
+                    #writer.flush()
+                    prof.step()
 
-                optimizer.zero_grad()
-                loss = _train_step(batch, pointpillars, loss_func, optimizer, epoch, i)
-                running_loss += loss.item()
-
-                logger.debug("Epoch: {}, Batch {} with Loss {} and running Loss {}.".format(epoch, i, loss.item(), running_loss/(i+1)))
-                print("Epoch: {}, Batch {} with Loss {} and running Loss {}.".format(epoch, i, loss.item(), running_loss/(i+1)))
-
-                torch.cuda.empty_cache()
-                writer.add_scalar("Epoch {}/Running Loss".format(epoch), running_loss/(i+1), i)
-                writer.flush()
-
-            # after epoch
-            scheduler.step()
-            writer.add_scalar("Epochs/Running Loss", running_loss/len(dl_train), epoch)
-            writer.add_scalar("Epochs/Learning Rate", scheduler.get_last_lr()[0], epoch)
-            writer.flush()
-
-            if val:
-                validate(pointpillars, loss_func, epoch, nbr_val_batches=10)
-
+                # after epoch
+                #scheduler.step()
+                #writer.add_scalar("Epochs/Running Loss", running_loss/len(dl_train), epoch)
+                #writer.add_scalar("Epochs/Learning Rate", scheduler.get_last_lr()[0], epoch)
+                #writer.flush()
+            #if val:
+                #validate(pointpillars, loss_func, epoch, nbr_val_batches=100)
         # after training
         print('Finished Training')
 
@@ -202,7 +207,6 @@ def train(val: bool = False, save_nw: bool = False):
         logger.exception("An exception occured")
         save_network_checkpoint(pointpillars, optimizer, scheduler, loss, ident_time, epoch)
         exit()
-
     if save_nw:
         # save network to location from config
         save_network(pointpillars, ident_time, n_epochs)
@@ -212,7 +216,6 @@ def train(val: bool = False, save_nw: bool = False):
 
 # Cell
 if __name__ == '__main__':
-    train(val=False, save_nw=True)
-
+    train(save_nw=False)
 
 

@@ -7,18 +7,21 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.ops import nms
 
-from .featurenet import FeatureNet
-from .backbone import Backbone
-from .head import Head
-from .boxmatch import BoxMatch
+from modules.pillarcalc import PillarCalc
+from modules.featurenet import FeatureNet
+from modules.backbone import Backbone
+from modules.head import Head
+from modules.boxmatch import BoxMatch
+from utils.math.box_ops import convert_boxes_to_2d_corners
 
 logger = logging.getLogger(__name__)
 
 # Cell
 class PointPillars(nn.Module):
 
-    def __init__(self, conf, training: bool = True, use_boxmatch: bool = False):
+    def __init__(self, conf, train_mode: bool = True):
         """A wrapper which combines all of the individual pointpillar modules.
 
         :param conf:
@@ -29,13 +32,13 @@ class PointPillars(nn.Module):
         super(PointPillars, self).__init__()
 
         self.conf = conf
-        self.training = training
-        self.use_boxmatch = use_boxmatch
+        self.train_mode = train_mode
 
+        self.pillarcalc = PillarCalc(conf['pillars'])
         self.featurenet = FeatureNet(conf['featurenet'], conf['pillars'])
         self.backbone = Backbone(conf['featurenet'])
         self.head = Head(conf['head'])
-        self.boxmatch = BoxMatch(conf['pillars'], conf['head'], training)
+        self.boxmatch = BoxMatch(conf['pillars'], conf['head'], train_mode)
 
     def __call__(self,
                  batch: torch.Tensor,
@@ -56,38 +59,62 @@ class PointPillars(nn.Module):
 
         :returns:
         """
+        """print(batch.element_size() * batch.nelement())
+        print(ind_batch.element_size() * ind_batch.nelement())
+        print(label_batch.element_size() * label_batch.nelement())
+        print(label_mask.element_size() * label_mask.nelement())"""
+
+        """batch = batch.cuda(non_blocking=True)
+        ind_batch = ind_batch.cuda(non_blocking=True)
+        label_batch = label_batch.cuda(non_blocking=True)
+        label_mask = label_mask.cuda(non_blocking=True)"""
+        with torch.no_grad():
+            batch = self.pillarcalc(batch, ind_batch)
         batch = self.featurenet(batch, ind_batch)
         batch = self.backbone(batch)
         batch = self.head(batch)
         batch = self.boxmatch(batch, label_batch, label_mask)
 
         if not self.training:
-            occ_threshold = 0.9995
-            pred_occ, pred_cls, pred_head, pred_box = batch
-
-            pred_occ = torch.sigmoid(pred_occ)
-            pred_cls = torch.sigmoid(pred_cls)
-            pred_head = torch.sigmoid(pred_cls)
-
-            if self.use_boxmatch:
-                raise NotImplementedError("Option using Boxmatch not yet implemented.")
-
-            # apply threshold for matching
-            else:
-                # find occ values greater than threshold
-                # pred_occ (bs_size, nb_boxes)
-                cond = pred_occ[0] >= occ_threshold
-                indices = torch.nonzero(cond, as_tuple=False).squeeze(1)
-
-                pred_anchors = torch.index_select(pred_box[0], 0, indices)
-
-                return pred_anchors, label_mask
-
-
+            batch = self.interference(batch)
 
         return batch
 
 
+    def interference(self, batch: torch.Tensor):
+        """
+        Performs nms on a single point cloud. Eliminates all BBs but the most confident Box with
+        IoU over a given threshold.
+        """
+        occ_threshold = 0.6
+        iou_threshold = 0.5
+        pred_occ, pred_cls, pred_head, pred_box = batch
+
+        pred_cls = torch.sigmoid(pred_cls)
+        pred_head = torch.sigmoid(pred_head)
+
+        pred_box_corners = convert_boxes_to_2d_corners(pred_box)
+
+        # select with non-maximum-suppression from iou
+        indices = nms(pred_box_corners[0], pred_occ[0], iou_threshold)
+
+        pred_box = torch.index_select(pred_box, 1, indices)
+        pred_occ = torch.index_select(pred_occ, 1, indices)
+
+        pred_occ = torch.sigmoid(pred_occ)
+         # select boxes above pos threshold
+        cond = pred_occ[0] >= occ_threshold
+        indices = torch.nonzero(cond, as_tuple=False).squeeze(1)
+        pred_box = torch.index_select(pred_box, 1, indices)
+        pred_occ = torch.index_select(pred_occ, 1, indices)
+
+        print(pred_box.shape)
+        print(pred_occ, pred_occ.shape)
+        #pred_cls = torch.index_select(pred_cls, 1, indices)
+        #pred_head = torch.index_select(pred_head, 1, indices)
+
+        # remove batch dimension
+        return pred_box[0]
 
 # Cell
 def init_weights(m):
