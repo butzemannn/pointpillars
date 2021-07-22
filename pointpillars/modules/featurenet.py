@@ -33,7 +33,7 @@ class FeatureNet(nn.Module):
         self.n_x = int((x_max - x_min) / x_step)
         self.n_y = int((y_max - y_min) / y_step)
 
-        self.conv1 = nn.Conv2d(self.in_chan, self.out_chan, 1)
+        self.conv1 = nn.Conv2d(self.in_chan, self.out_chan, 1, bias=True)
         self.batchn = nn.BatchNorm2d(self.out_chan)
         self.relu = nn.ReLU()
         self.maxpool = nn.MaxPool2d([1, self.max_ppp])
@@ -73,27 +73,26 @@ class FeatureNet(nn.Module):
 
         # flatten indices and pil_batch,
         # and also get the corresponding flat indices so torch.put() can be used
-        batch_ind = torch.cuda.FloatTensor(range(n_b))
+        batch_ind = torch.tensor(range(n_b), device=torch.device("cuda"))
         batch_ind = batch_ind.unsqueeze(1).expand(-1, n_c)
-        batch_ind = batch_ind.unsqueeze(2).expand(-1, -1, n_x).cuda()
+        batch_ind = batch_ind.unsqueeze(2).expand(-1, -1, n_x)
 
-        feat_ind = torch.cuda.FloatTensor(range(n_c))
+        feat_ind = torch.tensor(range(n_c), device=torch.device("cuda"))
         feat_ind = feat_ind.unsqueeze(0).expand(n_b, -1)
-        feat_ind = feat_ind.unsqueeze(2).expand(-1, -1, n_x).cuda()
+        feat_ind = feat_ind.unsqueeze(2).expand(-1, -1, n_x)
 
         ind_batch = ind_batch.unsqueeze(1).expand(-1, n_c, -1, -1)
-        x_ind = ind_batch[:,:,:,0].cuda()
-        y_ind = ind_batch[:,:,:,1].cuda()
+        x_ind = ind_batch[:,:,:,0]
+        y_ind = ind_batch[:,:,:,1]
 
         # calculate flat indices with batch, feature, x and y indices
         index = batch_ind * n_b + feat_ind * n_c + x_ind * n_x + y_ind
-        index = index.type(torch.LongTensor)
-        del batch_ind, feat_ind, x_ind, y_ind
+        index = index.long()
 
         index = torch.flatten(index)
         pil_batch = torch.flatten(pil_batch)
 
-        return pse_img.put_(index.cuda(), pil_batch)
+        return pse_img.put_(index, pil_batch)
 
         # old version
         #ind_x_batch = ind_batch.unsqueeze(1).expand(-1, pil_batch.shape[1], -1, -1)[:,:,:,0].unsqueeze(3).cuda()

@@ -37,15 +37,6 @@ class PointPillarsLoss(nn.Module):
         """
         pred_occ, pred_cls, pred_head, pred_boxes, gt_boxes, neg_matches = preds
 
-        logger.info("Calculating loss...")
-        logger.debug(f"pred_occ: {pred_occ}{pred_occ.shape},\n"
-                     f"pred_cls: {pred_cls}{pred_cls.shape},\n"
-                     f"pred_head: {pred_head}{pred_head.shape},\n"
-                     f"pred_boxes: {pred_boxes}{pred_boxes.shape},\n"
-                     f"gt_boxes: {gt_boxes}{gt_boxes.shape},\n"
-                     f"neg_matches: {neg_matches}{neg_matches.shape}")
-
-
         L_occ_pos = self.pos_occ_loss(preds)
         L_occ_neg = self.neg_occ_loss(preds)
         L_reg = self.reg_loss(preds, writer, epoch, i)
@@ -83,16 +74,6 @@ class PointPillarsLoss(nn.Module):
                 writer.add_scalar("Epoch {}/L_occ_neg".format(epoch), L_occ_neg/N_neg, i)
                 writer.add_scalar("Epoch {}/L_occ_pos".format(epoch), L_occ_pos/N_pos, i)
                 writer.add_scalar("Epoch {}/L_reg".format(epoch), L_reg, i)
-
-
-        logger.debug(f"Loss calculation complete.\n"
-                     f"L_occ_pos: {L_occ_pos},"
-                     f"L_occ_neg: {L_occ_neg},"
-                     f"L_reg: {L_reg},"
-                     f"loss: {loss}")
-
-        del preds, pred_occ, pred_cls, pred_head, pred_boxes, gt_boxes, neg_matches
-        del L_occ_pos, L_occ_neg, L_reg
 
         return loss
 
@@ -140,14 +121,6 @@ class PointPillarsLoss(nn.Module):
             writer.add_scalar("Epoch {}/L_cls".format(epoch), L_cls/N_pos, i)
             writer.add_scalar("Epoch {}/L_dir".format(epoch), L_dir/N_pos, i)
 
-        logger.debug(f"reg_loss calc complete.\n"
-                     f"L_loc: {L_loc},"
-                     f"L_cls: {L_cls},"
-                     f"L_dir: {L_dir},"
-                     f"L_reg: {L_reg}")
-
-        del L_loc, L_cls, L_dir, preds
-
         return L_reg
 
     def loc_loss(self, preds: list) -> float:
@@ -172,9 +145,6 @@ class PointPillarsLoss(nn.Module):
         xa, ya, za, ha, wa, la, thetaa = torch.split(pred_boxes, 1, dim=1)
         xg, yg, zg, hg, wg, lg, thetag = torch.split(gt_boxes, 1, dim=1)
 
-        logger.debug(f"xa, ya, za, wa, la, ha, thetaa: {xa}, {ya}, {za}, {wa}, {la}, {ha}, {thetaa}\n"
-                     f"xg, yg, zg, wg, lg, hg, thetag: {xg}, {yg}, {zg}, {wg}, {lg}, {hg}, {thetag}")
-
         diagonal = torch.sqrt(la**2 + wa**2)
         dx = (xg - xa) / diagonal
         dy = (yg - ya) / diagonal
@@ -183,8 +153,6 @@ class PointPillarsLoss(nn.Module):
         dw = torch.log(wg / wa)
         dh = torch.log(hg / ha)
         dtheta = torch.sin(thetaa - thetag)
-
-        logger.debug(f"diagonal, dx, dy, dz, dw, dl, dh, dtheta: {diagonal}, {dx}, {dy}, {dz}, {dw}, {dl}, {dh}, {dtheta}")
 
         calc_values = [dx, dy, dz, dl, dw, dh, dtheta]
         smooth_losses = []
@@ -318,7 +286,7 @@ class WeightedFocalLoss(nn.Module):
     "Non weighted version of Focal Loss"
     def __init__(self, alpha=0.25, gamma=2):
         super(WeightedFocalLoss, self).__init__()
-        self.alpha = torch.cuda.FloatTensor([alpha, 1-alpha])
+        self.alpha = torch.tensor([alpha, 1-alpha], device=torch.device("cuda"))
         self.gamma = gamma
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> float:

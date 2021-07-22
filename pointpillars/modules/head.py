@@ -51,7 +51,6 @@ class Head(nn.Module):
                      pred_box gives the dimension deltas to this anchors center (also dependant on pillar center)
         """
         logger.info("Forward through detection head...")
-        logger.debug(f"batch: {batch}{batch.shape}")
 
         pred_cls = self.conv_cls(batch)
         pred_occ = self.conv_occ(batch)
@@ -77,13 +76,6 @@ class Head(nn.Module):
         pred_boxes = torch.cat((pred_boxes[:,:,:,:,:3], pred_boxes_hwl, pred_boxes[:,:,:,:,6:]), dim=4)
         del pred_boxes_hwl
         """
-
-
-        logger.debug(f"Forward pass through head complete.\n"
-                     f"pred_occ: {pred_occ}{pred_occ.shape},\n"
-                     f"pred_cls: {pred_cls}{pred_cls.shape},\n"
-                     f"pred_head: {pred_head}{pred_head.shape},\n"
-                     f"pred_boxes: {pred_boxes}{pred_boxes.shape}")
 
         return pred_occ, pred_cls, pred_head, pred_boxes
 

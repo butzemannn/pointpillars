@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 # Cell
 class BoxMatch(nn.Module):
     def __init__(self, pillars_cfg, head_cfg, training: bool = True):
-        logger.info("Initializing BoxMatch module...")
 
         super(BoxMatch, self).__init__()
         self.pillars_cfg = pillars_cfg
@@ -31,8 +30,6 @@ class BoxMatch(nn.Module):
         self.y_min =  self.pillars_cfg.getfloat('y_min')
 
 
-        logger.debug("BoxMatch init complete.")
-
     def _calculate_absolute_boxes_from_anchors(self, pred_anchors: torch.Tensor) -> torch.Tensor:
         """Returns a view of all predicted, absolute bounding boxes.
 
@@ -40,25 +37,22 @@ class BoxMatch(nn.Module):
 
         :returns: tensor(batch_size, img_leng, img_width, nbr_anchors, nbr_attributes=7)
         """
-        logger.info("Calculating absolute_boxes_from_anchors...")
-
         bs, n_x, n_y, n_a = pred_anchors.shape[0:4]
         x_step = (self.pillars_cfg.getfloat('x_max') - self.x_min) / n_x
         y_step = (self.pillars_cfg.getfloat('y_max') - self.y_min) / n_y
         # create tensor containing the pillar indicies in the correct dimension
-        x = torch.cuda.FloatTensor(range(n_x)).unsqueeze(1).expand(n_x, n_y)
-        y = torch.cuda.FloatTensor(range(n_y),).unsqueeze(0).expand(n_x, n_y)
+        x = torch.tensor(range(n_x), device=torch.device("cuda")).unsqueeze(1).expand(n_x, n_y)
+        y = torch.tensor(range(n_y), device=torch.device("cuda")).unsqueeze(0).expand(n_x, n_y)
         ind = torch.stack((x,y), dim=2).unsqueeze(0).expand(bs, -1, -1, -1)
-        del x, y
 
         # add anchors to receive other absolute values
-        anchors_tens = torch.cuda.FloatTensor(self.anchors)
+        anchors_tens = torch.tensor(self.anchors, device=torch.device("cuda"))
         anchors_tens = anchors_tens.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand(bs, n_x, n_y, -1, -1)
 
         # step with current pseudo image size
         # calculate pillar center from index
-        pil_xy = ind * torch.cuda.FloatTensor([x_step, y_step])
-        pil_xy += torch.cuda.FloatTensor([self.x_min, self.y_min])
+        pil_xy = ind * torch.tensor([x_step, y_step], device=torch.device("cuda"))
+        pil_xy += torch.tensor([self.x_min, self.y_min], device=torch.device("cuda"))
 
         # expand for anchor nbr
         pil_xy = pil_xy.unsqueeze(3).expand(-1, -1, -1, n_a, -1)
@@ -80,13 +74,8 @@ class BoxMatch(nn.Module):
         pred_anchors_theta = pred_anchors_theta.unsqueeze(4)
 
         pred_anchors = torch.cat((pred_anchors_xy, pred_anchors_z, pred_anchors_hwl, pred_anchors_theta), dim=4)
-        del anchors_tens, pred_anchors_z, pred_anchors_hwl, pred_anchors_theta
-
-        logger.debug(f"Absolute boxes from anchors calculation complete.\n"
-                     f"pred_anchors: {pred_anchors}{pred_anchors.shape}")
 
         return pred_anchors
-
 
 
     def _calculate_batch_iou(self, pred_boxes: torch.Tensor, gt_boxes: torch.Tensor) -> torch.Tensor:
@@ -99,9 +88,6 @@ class BoxMatch(nn.Module):
 
         :returns: Tensor(batch_size, nbr_pred_boxes, nbr_gt_boxes)
         """
-        logger.info("Calculating batch iou...")
-        logger.debug(f"pred_boxes: {pred_boxes}{pred_boxes.shape},\n"
-                     f"gt_boxes: {gt_boxes}{gt_boxes.shape}")
         iou =  []
         for i in range(pred_boxes.shape[0]):
             pred_batch = pred_boxes[i]
@@ -109,9 +95,6 @@ class BoxMatch(nn.Module):
             iou.append(box_iou(pred_batch, gt_batch))
 
         batch_iou = torch.stack(iou, dim=0)
-        logger.debug(f"Batch iou calculation complete.\n"
-                     f"batch_iou: {batch_iou}{batch_iou.shape}")
-        del pred_batch, gt_batch
         return batch_iou
 
     def boxmatch_from_corners(self,
@@ -150,9 +133,6 @@ class BoxMatch(nn.Module):
 
                    neg_match gives the pred_occ for every box with a iou match lower than the neg_iou_threshold
         """
-        logger.info("Calculation iou nms from corners...")
-        logger.debug(f"preds: {preds}\n"
-                     f"gt_boxes: {gt_boxes}{gt_boxes.shape}")
 
         if isinstance(preds, tuple):
             preds = list(preds)
@@ -162,23 +142,20 @@ class BoxMatch(nn.Module):
         # upper iou threshold for positive as well as negative match
         # add x_min and y_min, since box_iou() expects values greater than 0
         bs, na, n = pred_boxes_corners.shape
-        xy_min = torch.cuda.FloatTensor([self.x_min, self.y_min])
+        xy_min = torch.tensor([self.x_min, self.y_min], device=torch.device("cuda"))
         xy_min = torch.cat((xy_min, xy_min), dim=0)
         iou = self._calculate_batch_iou(pred_boxes_corners + xy_min.expand_as(pred_boxes_corners),
                                         gt_boxes_corners + xy_min.expand_as(gt_boxes_corners))
-        del pred_boxes_corners, gt_boxes_corners
 
         condition_pos = iou >= pos_iou_threshold
         # incorporate gt_mask
-        gt_mask_pos = gt_mask.type(torch.BoolTensor).unsqueeze(1).expand(-1, condition_pos.shape[1], -1).cuda()
+        gt_mask_pos = gt_mask.unsqueeze(1).expand(-1, condition_pos.shape[1], -1)
         condition_pos = torch.logical_and(condition_pos.cuda(), gt_mask_pos)
         indices_pos = torch.nonzero(condition_pos, as_tuple=False)
-        del condition_pos, gt_mask_pos
 
         # batch_size * nbr_pred_boxes has to be added to index since pred_boxes is flattened
         indices_pred_boxes_flat = indices_pos[:,1] + indices_pos[:,0] * preds[3].shape[1]
         indices_gt_boxes_flat = indices_pos[:,2] + indices_pos[:,0] * gt_boxes.shape[1]
-        del indices_pos
 
         results = []
         for tensor in preds:
@@ -188,22 +165,17 @@ class BoxMatch(nn.Module):
             results.append(torch.index_select(flat_tensor, 0, indices_pred_boxes_flat))
         gt_boxes_flat = torch.flatten(gt_boxes, start_dim=0, end_dim=1)
         results.append(torch.index_select(gt_boxes_flat, 0, indices_gt_boxes_flat))
-        del indices_pred_boxes_flat, flat_tensor, gt_boxes_flat, indices_gt_boxes_flat
 
         # negative matches
         # same index procedure as previously done
         condition_neg = iou <= neg_iou_threshold
-        gt_mask_neg = gt_mask.type(torch.BoolTensor).unsqueeze(1).expand(-1, condition_neg.shape[1], -1).cuda()
+        gt_mask_neg = gt_mask.unsqueeze(1).expand(-1, condition_neg.shape[1], -1)
         condition_neg = torch.logical_and(condition_neg, gt_mask_neg)
         indices_neg = torch.nonzero(condition_neg, as_tuple=False)
         indices_neg_flat = indices_neg[:,1] + indices_neg[:,0] * preds[3].shape[1]
 
         pred_occ_flat = torch.flatten(preds[0], start_dim=0, end_dim=1)
         results.append(torch.index_select(pred_occ_flat, 0, indices_neg_flat))
-        del condition_neg, indices_neg, indices_neg_flat, pred_occ_flat, iou, gt_mask, gt_mask_neg
-
-        logger.debug(f"iou nms from corners calc complete.\n"
-                     f"results: {results}")
 
         return results
 
@@ -234,9 +206,6 @@ class BoxMatch(nn.Module):
 
                    neg_match gives the pred_occ for every box with a iou match lower than the neg_iou_threshold
         """
-        logger.info("Forward pass through BoxMatch...")
-        logger.debug(f"preds: {preds},\n"
-                     f"gt_boxes: {gt_boxes}{gt_boxes.shape}")
 
         if isinstance(preds, tuple):
             preds = list(preds)

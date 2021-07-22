@@ -17,12 +17,15 @@ class PillarCalc(nn.Module):
         super(PillarCalc, self).__init__()
 
         self.pillars_cfg = pillars_cfg
-        self.min = torch.cuda.FloatTensor([self.pillars_cfg.getfloat('x_min'),
-                                           self.pillars_cfg.getfloat('y_min')])
-        self.step = torch.cuda.FloatTensor([self.pillars_cfg.getfloat('x_step'),
-                                            self.pillars_cfg.getfloat('y_step')])
-        self.z_center = torch.cuda.FloatTensor([(self.pillars_cfg.getfloat('z_max') -
-                                                 self.pillars_cfg.getfloat('z_min')) / 2.0])
+        self.min = torch.tensor([self.pillars_cfg.getfloat('x_min'),
+                                 self.pillars_cfg.getfloat('y_min')],
+                                 device=torch.device("cuda"))
+        self.step = torch.tensor([self.pillars_cfg.getfloat('x_step'),
+                                  self.pillars_cfg.getfloat('y_step')],
+                                  device=torch.device("cuda"))
+        self.z_center = torch.tensor([(self.pillars_cfg.getfloat('z_max') -
+                                       self.pillars_cfg.getfloat('z_min')) / 2.0],
+                                       device=torch.device("cuda"))
 
     def _pillar_centers_from_index(self, xy_index: torch.tensor):
         """
@@ -40,7 +43,7 @@ class PillarCalc(nn.Module):
 
         return xy_index
 
-    def __call__(self, pillars: torch.Tensor, pillar_index: torch.Tensor, dt = torch.float32):
+    def forward(self, pillars: torch.Tensor, pillar_index: torch.Tensor, dt = torch.float32):
         """Returns the tensor with the given and all the calculated attributes.
             :param pillars:
             :param pillar_index:

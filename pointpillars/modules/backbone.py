@@ -40,9 +40,10 @@ class Backbone(nn.Module):
         modules = []
         for i in range(L):
             if i == 0:
-                modules.append(nn.Conv2d(C_in, C_out, 3, stride=int(S_out/S_in), padding=1))
+                # no bias, see https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
+                modules.append(nn.Conv2d(C_in, C_out, 3, stride=int(S_out/S_in), padding=1, bias=True))
             else:
-                modules.append(nn.Conv2d(C_out, C_out, 3, padding=1))
+                modules.append(nn.Conv2d(C_out, C_out, 3, padding=1, bias=True))
 
             modules.append(nn.BatchNorm2d(C_out, ))
             modules.append(nn.ReLU(inplace=False))
@@ -52,7 +53,7 @@ class Backbone(nn.Module):
     def _up_block(self, C_in: int, C_out: int, stride: int):
         """Returns umsampling block (transposed Conv2D) with BatchNorm and ReLU applied thereafter."""
         return nn.Sequential(
-            nn.ConvTranspose2d(C_in, C_out, stride, stride=stride),
+            nn.ConvTranspose2d(C_in, C_out, stride, stride=stride, bias=True),
             nn.BatchNorm2d(C_out),
             nn.ReLU(inplace=False)
         )
@@ -72,7 +73,6 @@ class Backbone(nn.Module):
         batch_up3 = self.up3(batch)
 
         batch = torch.cat([batch_up1, batch_up2, batch_up3], dim=1)
-        del batch_up1, batch_up2, batch_up3
 
         return batch
 

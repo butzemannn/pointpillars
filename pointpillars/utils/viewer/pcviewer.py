@@ -33,18 +33,18 @@ class PCViewer(object):
         """
         x, y, z, h, w, l, theta = box.tolist()
 
-        dh = 0.5 * h
+        #dh = 0.5 * h
         dw = 0.5 * w
         dl = 0.5 * l
 
-        p0 = [x - dl, y + dw, z - dh]
-        p1 = [x - dl, y - dw, z - dh]
-        p2 = [x + dl, y - dw, z - dh]
-        p3 = [x + dl, y + dw, z - dh]
-        p4 = [x - dl, y + dw, z + dh]
-        p5 = [x - dl, y - dw, z + dh]
-        p6 = [x + dl, y - dw, z + dh]
-        p7 = [x + dl, y + dw, z + dh]
+        p0 = [x - dl, y + dw, z]
+        p1 = [x - dl, y - dw, z]
+        p2 = [x + dl, y - dw, z]
+        p3 = [x + dl, y + dw, z]
+        p4 = [x - dl, y + dw, z + h]
+        p5 = [x - dl, y - dw, z + h]
+        p6 = [x + dl, y - dw, z + h]
+        p7 = [x + dl, y + dw, z + h]
 
         points = [p0, p1, p2, p3, p4, p5, p6, p7]
         #points = PCViewer.rotate_points_around_z(points, theta)
@@ -54,7 +54,7 @@ class PCViewer(object):
         colors = [color for i in range(len(lines))]
 
         line_set = o3d.geometry.LineSet()
-        line_set.points =  o3d.utility.Vector3dVector(points)
+        line_set.points = o3d.utility.Vector3dVector(points)
         line_set.lines =  o3d.utility.Vector2iVector(lines)
         line_set.colors = o3d.utility.Vector3dVector(colors)
 

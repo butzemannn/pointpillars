@@ -40,7 +40,7 @@ class PointPillars(nn.Module):
         self.head = Head(conf['head'])
         self.boxmatch = BoxMatch(conf['pillars'], conf['head'], train_mode)
 
-    def __call__(self,
+    def forward(self,
                  batch: torch.Tensor,
                  ind_batch: torch.Tensor,
                  label_batch: torch.Tensor = None,
@@ -68,6 +68,13 @@ class PointPillars(nn.Module):
         ind_batch = ind_batch.cuda(non_blocking=True)
         label_batch = label_batch.cuda(non_blocking=True)
         label_mask = label_mask.cuda(non_blocking=True)"""
+
+        batch = batch.cuda(non_blocking=True)
+        ind_batch = ind_batch.cuda(non_blocking=True)
+        label_batch = label_batch.cuda(non_blocking=True)
+        if label_mask is not None:
+            label_mask = label_mask.cuda(non_blocking=True)
+
         with torch.no_grad():
             batch = self.pillarcalc(batch, ind_batch)
         batch = self.featurenet(batch, ind_batch)
@@ -81,40 +88,37 @@ class PointPillars(nn.Module):
         return batch
 
 
-    def interference(self, batch: torch.Tensor):
+    def interference(self, batch: torch.Tensor) -> tuple:
         """
         Performs nms on a single point cloud. Eliminates all BBs but the most confident Box with
         IoU over a given threshold.
+
+        :returns: (pred_occ, pred_cls, pred_head, pred_box)
         """
         occ_threshold = 0.6
-        iou_threshold = 0.5
-        pred_occ, pred_cls, pred_head, pred_box = batch
+        iou_threshold = 0.2
 
-        pred_cls = torch.sigmoid(pred_cls)
-        pred_head = torch.sigmoid(pred_head)
+        pred_occ, _, _, pred_box = batch
+        for i, tens in enumerate(batch[:-1]):
+            batch[i] = torch.sigmoid(tens)
 
-        pred_box_corners = convert_boxes_to_2d_corners(pred_box)
-
-        # select with non-maximum-suppression from iou
-        indices = nms(pred_box_corners[0], pred_occ[0], iou_threshold)
-
-        pred_box = torch.index_select(pred_box, 1, indices)
-        pred_occ = torch.index_select(pred_occ, 1, indices)
-
-        pred_occ = torch.sigmoid(pred_occ)
          # select boxes above pos threshold
         cond = pred_occ[0] >= occ_threshold
         indices = torch.nonzero(cond, as_tuple=False).squeeze(1)
-        pred_box = torch.index_select(pred_box, 1, indices)
-        pred_occ = torch.index_select(pred_occ, 1, indices)
+        for i, tens in enumerate(batch):
+            batch[i] = torch.index_select(tens, 1, indices)
 
-        print(pred_box.shape)
-        print(pred_occ, pred_occ.shape)
-        #pred_cls = torch.index_select(pred_cls, 1, indices)
-        #pred_head = torch.index_select(pred_head, 1, indices)
+        pred_box_corners = convert_boxes_to_2d_corners(batch[3])
+        # select with non-maximum-suppression from iou
+        indices = nms(pred_box_corners[0], batch[0][0], iou_threshold)
+        for i, tens in enumerate(batch):
+            batch[i] = torch.index_select(tens, 1, indices)
+
+        #rint(batch[3].shape)
+        #print(batch[0], batch[0].shape)
 
         # remove batch dimension
-        return pred_box[0]
+        return batch[0][0], batch[1][0], batch[2][0], batch[3][0]
 
 # Cell
 def init_weights(m):
